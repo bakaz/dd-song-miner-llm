@@ -108,7 +108,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.no_video_clips:
             config["output"]["video_clips"] = False
 
-        if not config["llm"].get("api_key"):
+        # 检查API key（支持环境变量）
+        api_key = config["llm"].get("api_key")
+        api_key_env = config["llm"].get("api_key_env")
+        if not api_key and api_key_env:
+            import os
+            api_key = os.environ.get(str(api_key_env), "")
+        if not api_key:
             print("Error: LLM API key required. Set in config or --llm-api-key")
             return 1
 

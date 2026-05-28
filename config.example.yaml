@@ -24,6 +24,8 @@ llm:
   reasoning_followup_rounds: 2
   reasoning_followup_max_tokens: 8192
   batch_size: null           # null=整段提交；正整数=按 ASR 段数分批
+  use_tools: true            # 启用歌词搜索工具
+  verify_with_search: true   # 识别后搜索验证分段
   
   # 备用提供商 (可选，当主提供商失败时自动回退)
   fallbacks: []

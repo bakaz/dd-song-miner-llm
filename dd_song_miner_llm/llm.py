@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import SongMatch, TranscriptSegment
+from .search_tools import get_tools, execute_tool
 
 
 @dataclass
@@ -30,32 +31,27 @@ def _build_prompt(segments: list[TranscriptSegment], batch_start: int) -> str:
     return f"""你是一个面向演唱会、直播和长视频的歌曲识别专家。
 下面是一整段视频的 ASR 转写片段，每行格式为 [序号] (开始秒-结束秒) 文本。
 
-任务：从完整上下文中识别所有完整歌曲，返回纯 JSON 数组。
+任务：从完整上下文中识别所有演唱片段，返回纯 JSON 数组。
 每个对象必须包含以下字段：
-- title: 歌名。能识别出原曲时填写准确歌名；无法确认时填写“未知歌曲：”加最有代表性的一句歌词或副歌关键词。
+- title: 歌名。能识别出原曲时填写准确歌名；无法确认时填写"未知歌曲："加最有代表性的一句歌词。
 - artist: 原唱或演唱者。无法判断时填空字符串。
 - segment_indices: 属于同一首歌的 ASR 段落序号数组，必须只使用输入中出现的序号，按升序排列。
-- confidence: 0 到 1 的置信度。确定歌名和边界时接近 1；只确定是演唱但歌名不确定时约 0.55-0.75。
+- confidence: 0 到 1 的置信度。
 
 识别原则：
-1. 以“完整歌曲”为目标识别：一首歌从第一句明显歌词开始，到最后一句歌词或尾奏前后的演唱结束为止。
-2. 同一首歌的连续演唱段落必须合并成一个对象。不要把主歌、副歌、桥段、重复副歌或换气停顿拆成多首。
-3. segment_indices 应覆盖这首歌的完整演唱范围，从第一句歌词到最后一句歌词；不要只选最能识别歌名的几句。
-4. 明显的串场、聊天、感谢、报幕、互动、掌声描述、口播广告、倒计时、告别语不要放进 segment_indices。
-5. 如果一句话既有简短口播又立刻进入歌词，且该片段主要用于承接歌曲，可以纳入；如果主要是说话，不要纳入。
-6. 串烧或 medley 中如果换成另一首歌，拆成多个对象；如果只是同一首歌不同段落，保持一个对象。
-7. ASR 可能没有标点、可能错字、可能把哼唱拟声词转成文字。根据重复歌词、押韵、节奏化短句、主歌/副歌结构判断是否在唱歌。
-8. 不要因为现场版、短版、节选、清唱或串烧中的歌曲短于 2 分钟就丢弃；只要构成独立歌曲或明确歌曲段落就应标出。
-9. 如果完全没有演唱内容，返回 []。
+1. 只要是**在唱歌**的段落都应识别出来，即使无法确定歌名。
+2. 同一首歌的连续演唱段落必须合并成一个对象。不要把主歌、副歌、桥段拆成多首。
+3. 明显的说话、聊天、感谢、报幕、互动、口播不要放进 segment_indices。
+4. ASR 可能没有标点、可能错字。根据重复歌词、押韵、节奏化短句判断是否在唱歌。
+5. 不要因为短于 2 分钟就丢弃。只要是在唱歌就标出来。
+
+可以使用 search_lyrics 工具搜索歌词确认歌名，最多搜索2次，然后必须返回结果。
+宁可返回"未知歌曲"也不要漏掉任何演唱片段。
 
 输出要求：
 - 只返回 JSON 数组，不要 Markdown，不要解释，不要代码块。
 - 不要输出输入中不存在的 segment index。
-- 不要添加额外字段。
-- 示例格式：
-[
-  {{"title": "歌曲名", "artist": "歌手名", "segment_indices": [12, 13, 14], "confidence": 0.86}}
-]
+- 示例：[{{"title": "歌曲名", "artist": "歌手名", "segment_indices": [12, 13, 14], "confidence": 0.86}}]
 
 完整 ASR 转写片段：
 {transcript_text}"""
@@ -87,7 +83,7 @@ def _parse_llm_response(text: str) -> list[dict[str, Any]]:
     try:
         result = json.loads(text)
         if isinstance(result, list):
-            return result
+            return [item for item in result if isinstance(item, dict)]
     except json.JSONDecodeError:
         start = text.find("[")
         end = text.rfind("]")
@@ -95,7 +91,7 @@ def _parse_llm_response(text: str) -> list[dict[str, Any]]:
             try:
                 result = json.loads(text[start:end + 1])
                 if isinstance(result, list):
-                    return result
+                    return [item for item in result if isinstance(item, dict)]
             except json.JSONDecodeError:
                 pass
     return []
@@ -193,8 +189,9 @@ def _parse_providers(config: dict[str, Any]) -> list[LLMProvider]:
 def _call_llm(
     client: Any,
     provider: LLMProvider,
-    prompt: str,
+    messages: list[dict[str, Any]],
     max_tokens_override: int | None = None,
+    tools: list[dict[str, Any]] | None = None,
 ) -> Any:
     token_args = (
         {"max_completion_tokens": max_tokens_override}
@@ -205,20 +202,19 @@ def _call_llm(
             else {"max_tokens": provider.max_tokens}
         )
     )
-    response = client.chat.completions.create(
-        model=provider.model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=provider.temperature,
+
+    kwargs: dict[str, Any] = {
+        "model": provider.model,
+        "messages": messages,
+        "temperature": provider.temperature,
         **token_args,
-    )
-    return response
-
-
-def _llm_debug_for_prompt(prompt: str, response_debug: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "prompt": prompt,
-        "response": response_debug,
     }
+
+    if tools:
+        kwargs["tools"] = tools
+
+    response = client.chat.completions.create(**kwargs)
+    return response
 
 
 def _llm_response_debug(response: Any) -> dict[str, Any]:
@@ -237,15 +233,88 @@ def _llm_response_debug(response: Any) -> dict[str, Any]:
         "reasoning_content_length": len(reasoning),
         "message_keys": list(message_data.keys()),
         "usage": usage,
+        "tool_calls": message_data.get("tool_calls"),
     }
+
+
+def _run_llm_with_tools(
+    client: Any,
+    provider: LLMProvider,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    batch_debug: dict[str, Any],
+    max_tool_rounds: int = 2,
+) -> str:
+    """调用LLM，处理tool calls，最多max_tool_rounds轮后强制返回JSON。"""
+    for tool_round in range(max_tool_rounds + 1):
+        is_last = (tool_round == max_tool_rounds)
+
+        # 最后一轮不传tools，强制返回JSON，使用更大的max_tokens
+        call_tools = None if is_last else tools
+        last_round_tokens = 8192 if is_last else None
+        if is_last and tool_round > 0:
+            messages = messages + [{
+                "role": "user",
+                "content": "搜索已完成。现在请根据已有的搜索结果，直接返回歌曲识别的JSON数组。不要再调用任何工具。只返回JSON数组，不要其他文字。",
+            }]
+
+        response = _call_llm(client, provider, messages, max_tokens_override=last_round_tokens, tools=call_tools)
+        debug = _llm_response_debug(response)
+        batch_debug.setdefault("tool_rounds", []).append({
+            "round": tool_round + 1,
+            "content": debug["content"][:200],
+            "reasoning_content": debug["reasoning_content"][:200],
+            "finish_reason": debug["finish_reason"],
+            "has_tool_calls": bool(debug.get("tool_calls")),
+        })
+
+        content = debug["content"]
+        tool_calls_data = debug.get("tool_calls")
+
+        # 没有tool calls -> 直接返回content
+        if not tool_calls_data:
+            # content为空但reasoning有内容时，提取reasoning中的JSON
+            if not content.strip() and debug["reasoning_content"].strip():
+                content = debug["reasoning_content"]
+            return content
+
+        # 最后一轮强制返回，即使还有tool calls
+        if is_last:
+            if not content.strip() and debug["reasoning_content"].strip():
+                content = debug["reasoning_content"]
+            return content
+
+        # 执行tool calls
+        choice = response.choices[0] if response.choices else None
+        message = choice.message if choice is not None else None
+        if not message or not message.tool_calls:
+            return content
+
+        messages.append(message.model_dump())
+        for tc in message.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError:
+                args = {}
+            result = execute_tool(tc.function.name, args)
+            batch_debug.setdefault("tool_calls_log", []).append({
+                "round": tool_round + 1,
+                "function": tc.function.name,
+                "arguments": args,
+                "result_preview": result[:200],
+            })
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result,
+            })
+
+    return ""
 
 
 def _build_reasoning_followup_prompt(reasoning_content: str, partial_content: str = "") -> str:
     partial_block = (
-        f"""
-
-上一轮已经生成但可能被截断或格式不完整的内容：
-{partial_content}"""
+        f"\n\n上一轮已经生成但可能被截断或格式不完整的内容：\n{partial_content}"
         if partial_content.strip()
         else ""
     )
@@ -254,7 +323,7 @@ def _build_reasoning_followup_prompt(reasoning_content: str, partial_content: st
 不要继续分析，不要解释，不要输出思考过程。请只把分析中已经确定的歌曲整理成 JSON 数组。
 
 每个对象只允许包含以下字段：
-- title: 歌名。无法确定时使用“未知歌曲：”加代表性歌词关键词。
+- title: 歌名。无法确定时使用"未知歌曲："加代表性歌词关键词。
 - artist: 歌手。无法判断时填空字符串。
 - segment_indices: 属于该歌曲的 ASR 段落序号数组，按升序排列。
 - confidence: 0 到 1 的置信度。
@@ -298,20 +367,20 @@ def _run_reasoning_followups(
             followup_response = _call_llm(
                 client,
                 provider,
-                followup_prompt,
+                [{"role": "user", "content": followup_prompt}],
                 max_tokens_override=followup_tokens,
             )
             followup_debug = _llm_response_debug(followup_response)
             content = followup_debug["content"]
             batch_debug["reasoning_followups"].append({
                 "round": len(batch_debug["reasoning_followups"]) + 1,
-                **_llm_debug_for_prompt(followup_prompt, followup_debug),
+                "content": content[:500],
+                "reasoning_content": followup_debug["reasoning_content"][:500],
             })
             batch_debug["raw_response"] = content
         except Exception as exc:
             batch_debug["reasoning_followups"].append({
                 "round": len(batch_debug["reasoning_followups"]) + 1,
-                "prompt": followup_prompt,
                 "error": str(exc),
             })
             return ""
@@ -344,16 +413,20 @@ def identify_songs(
     if debug_path is not None:
         debug_path.mkdir(parents=True, exist_ok=True)
 
+    tools = get_tools()
+    use_tools = bool(config["llm"].get("use_tools", True))
+
     for batch_start, batch in _iter_llm_batches(segments, config):
         prompt = _build_prompt(batch, batch_start)
         batch_debug: dict[str, Any] = {
             "batch_start": batch_start,
             "batch_end": batch_start + len(batch) - 1,
             "segment_count": len(batch),
-            "prompt": prompt,
             "provider": None,
             "raw_response": None,
             "parsed_items": [],
+            "tool_calls_log": [],
+            "tool_rounds": [],
             "reasoning_followups": [],
             "error": None,
         }
@@ -371,15 +444,27 @@ def identify_songs(
                     client_kwargs["base_url"] = provider.base_url
 
                 client = OpenAI(**client_kwargs)
-                response = _call_llm(client, provider, prompt)
-                response_debug = _llm_response_debug(response)
-                content = response_debug["content"]
+                messages: list[dict[str, Any]] = [
+                    {"role": "user", "content": prompt}
+                ]
+
                 batch_debug["provider"] = {
                     "base_url": provider.base_url or "openai",
                     "model": provider.model,
                 }
+
+                if use_tools:
+                    content = _run_llm_with_tools(
+                        client, provider, messages, tools, batch_debug
+                    )
+                else:
+                    response = _call_llm(client, provider, messages)
+                    debug = _llm_response_debug(response)
+                    content = debug["content"]
+                    if not content.strip() and debug["reasoning_content"].strip():
+                        content = debug["reasoning_content"]
+
                 batch_debug["raw_response"] = content
-                batch_debug["response"] = response_debug
                 break
             except Exception as exc:
                 last_error = exc
@@ -392,40 +477,47 @@ def identify_songs(
                 _write_llm_debug(debug_path, batch_start, batch_debug)
             print(f"All LLM providers failed for batch {batch_start}. Last error: {last_error}")
             continue
-        if not content.strip():
-            reasoning_content = str((batch_debug.get("response") or {}).get("reasoning_content") or "")
-            content = _run_reasoning_followups(
-                client,
-                provider,
-                config,
-                reasoning_content,
-                "",
-                batch_debug,
-            )
 
+        # content为空时尝试reasoning followup
+        if not content.strip():
+            reasoning_content = ""
+            if batch_debug.get("tool_rounds"):
+                for tr in batch_debug["tool_rounds"]:
+                    if tr.get("reasoning_content"):
+                        reasoning_content = tr["reasoning_content"]
+                        break
+            content = _run_reasoning_followups(
+                client, provider, config, reasoning_content, "", batch_debug
+            )
             if not content.strip():
-                batch_debug["error"] = "LLM returned an empty message.content"
+                batch_debug["error"] = "LLM returned empty content"
                 if debug_path is not None:
                     _write_llm_debug(debug_path, batch_start, batch_debug)
-                print(f"LLM returned an empty response for batch {batch_start}.")
+                print(f"LLM returned empty response for batch {batch_start}.")
                 continue
 
+        # 尝试解析JSON
         items = _parse_llm_response(content)
         if not items:
-            response_debug = batch_debug.get("response") or {}
-            reasoning_content = str(response_debug.get("reasoning_content") or "")
-            if response_debug.get("finish_reason") == "length" or reasoning_content.strip():
-                followup_content = _run_reasoning_followups(
-                    client,
-                    provider,
-                    config,
-                    reasoning_content,
-                    content,
-                    batch_debug,
-                )
-                if followup_content.strip():
-                    content = followup_content
-                    items = _parse_llm_response(content)
+            # 从reasoning中提取
+            if batch_debug.get("tool_rounds"):
+                for tr in batch_debug["tool_rounds"]:
+                    rc = tr.get("reasoning_content", "")
+                    if rc.strip():
+                        items = _parse_llm_response(rc)
+                        if items:
+                            break
+            # reasoning followup兜底
+            if not items:
+                response_debug = batch_debug.get("response") or {}
+                reasoning_content = str(response_debug.get("reasoning_content") or "")
+                if reasoning_content.strip():
+                    followup_content = _run_reasoning_followups(
+                        client, provider, config, reasoning_content, content, batch_debug
+                    )
+                    if followup_content.strip():
+                        content = followup_content
+                        items = _parse_llm_response(content)
 
         batch_debug["parsed_items"] = items
         if debug_path is not None:

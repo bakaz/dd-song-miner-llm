@@ -8,6 +8,43 @@ from typing import Any
 from .models import TranscriptSegment
 
 
+def _add_nvidia_dll_directories() -> None:
+    if os.name != "nt" or not hasattr(os, "add_dll_directory"):
+        return
+
+    nvidia_paths = []
+    for package_name in ("nvidia.cublas", "nvidia.cuda_runtime", "nvidia.cudnn", "nvidia.cuda_nvrtc"):
+        try:
+            package = importlib.import_module(package_name)
+        except ImportError:
+            continue
+
+        # 获取包路径（支持namespace packages）
+        package_paths = getattr(package, "__path__", [])
+        for package_dir in package_paths:
+            package_dir = Path(package_dir).resolve()
+            candidates = {package_dir, package_dir / "bin", package_dir / "lib"}
+            candidates.update(path.parent for path in package_dir.rglob("*.dll"))
+
+            for candidate in candidates:
+                if candidate.is_dir():
+                    try:
+                        os.add_dll_directory(str(candidate))
+                    except OSError:
+                        pass
+                    nvidia_paths.append(str(candidate))
+
+    # 把pip安装的nvidia路径添加到PATH最前面，确保优先于系统CUDA
+    if nvidia_paths:
+        current_path = os.environ.get("PATH", "")
+        new_path = os.pathsep.join(nvidia_paths) + os.pathsep + current_path
+        os.environ["PATH"] = new_path
+
+
+# 模块加载时设置DLL路径
+_add_nvidia_dll_directories()
+
+
 class Transcriber:
     def __init__(self, config: dict[str, Any]) -> None:
         self.settings = config["asr"]
@@ -21,8 +58,10 @@ class Transcriber:
         if self._model is not None:
             return self._model
 
+        # 每次加载模型前重新设置DLL路径
+        _add_nvidia_dll_directories()
+
         try:
-            _add_nvidia_dll_directories()
             from faster_whisper import WhisperModel
         except ImportError as exc:
             raise RuntimeError("faster-whisper not installed. pip install faster-whisper") from exc
@@ -48,6 +87,7 @@ class Transcriber:
             if device == "cpu" or not _is_cuda_runtime_error(exc):
                 raise
             print(f"CUDA ASR failed ({exc}); retrying on CPU with int8 compute.")
+            print(f"[debug] Current PATH (first 5): {os.environ['PATH'][:500]}")
             self._reset_model()
             model = self._load_model(device_override="cpu", compute_type_override="int8")
             segments, _info = self._transcribe_with_model(model, audio_path)
@@ -86,26 +126,3 @@ def _is_cuda_runtime_error(exc: RuntimeError) -> bool:
             "dll is not found or cannot be loaded",
         )
     )
-
-
-def _add_nvidia_dll_directories() -> None:
-    if os.name != "nt" or not hasattr(os, "add_dll_directory"):
-        return
-
-    for package_name in ("nvidia.cublas", "nvidia.cuda_runtime", "nvidia.cudnn"):
-        try:
-            package = importlib.import_module(package_name)
-        except ImportError:
-            continue
-
-        package_file = getattr(package, "__file__", None)
-        if not package_file:
-            continue
-
-        package_dir = Path(package_file).resolve().parent
-        candidates = {package_dir, package_dir / "bin", package_dir / "lib"}
-        candidates.update(path.parent for path in package_dir.rglob("*.dll"))
-
-        for candidate in candidates:
-            if candidate.is_dir():
-                os.add_dll_directory(str(candidate))
