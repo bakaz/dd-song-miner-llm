@@ -88,6 +88,7 @@ def run_pipeline(
     results = build_song_results(segments, matches, total_duration, config)
 
     audio_ext = str(config["output"].get("audio_extension", "m4a")).lstrip(".")
+    video_ext = str(config["output"].get("video_extension", "mp4")).lstrip(".")
     audio_dir_out = clips_dir / "audio"
     video_dir_out = clips_dir / "video"
 
@@ -107,13 +108,33 @@ def run_pipeline(
 
         if config["output"].get("video_clips", True):
             try:
-                target = video_dir_out / f"{stem}.mp4"
+                target = video_dir_out / f"{stem}.{video_ext}"
                 cut_video(input_path, target, result.start, result.end)
                 result.video_path = target
             except Exception as exc:
                 result.errors.append(f"video export failed: {exc}")
 
     write_reports(results, reports_dir)
+
+    # 输出识别结果摘要
+    print(f"\n{'='*60}")
+    print(f"识别到 {len(results)} 首歌曲:")
+    print(f"{'='*60}")
+    for r in results:
+        tc_start = f"{int(r.start//3600):02d}:{int((r.start%3600)//60):02d}:{int(r.start%60):02d}"
+        tc_end = f"{int(r.end//3600):02d}:{int((r.end%3600)//60):02d}:{int(r.end%60):02d}"
+        print(f"\n[{r.index}] {r.title}")
+        if r.artist:
+            print(f"    歌手: {r.artist}")
+        print(f"    时间: {tc_start} - {tc_end} ({r.duration:.1f}s)")
+        print(f"    置信度: {r.confidence:.2f}")
+        if r.transcript:
+            # 显示完整的whisper识别歌词
+            print(f"    歌词:")
+            for line in r.transcript.split(" "):
+                if line.strip():
+                    print(f"      {line.strip()}")
+    print(f"\n{'='*60}")
 
     manifest = {
         "input_video": str(input_path),

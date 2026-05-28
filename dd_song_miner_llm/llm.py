@@ -251,7 +251,7 @@ def _run_llm_with_tools(
 
         # 最后一轮不传tools，强制返回JSON，使用更大的max_tokens
         call_tools = None if is_last else tools
-        last_round_tokens = 8192 if is_last else None
+        last_round_tokens = 16384 if is_last else None
         if is_last and tool_round > 0:
             messages = messages + [{
                 "role": "user",

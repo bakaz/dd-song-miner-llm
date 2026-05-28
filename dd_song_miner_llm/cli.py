@@ -28,6 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--padding-before", type=float, default=None, help="Padding before song (seconds).")
     run_parser.add_argument("--padding-after", type=float, default=None, help="Padding after song (seconds).")
     run_parser.add_argument("--no-video-clips", action="store_true", help="Skip video clip export.")
+    run_parser.add_argument("--export-audio", default=None, help="Audio export format (mp3, m4a, wav, etc).")
+    run_parser.add_argument("--export-video", default=None, help="Video export format (mp4, mkv, etc).")
 
     init_parser = subparsers.add_parser("init-config", help="Generate default config file.")
     init_parser.add_argument("--out", default="config.yaml", help="Output path.")
@@ -107,6 +109,12 @@ def main(argv: list[str] | None = None) -> int:
             config["padding"]["after_seconds"] = args.padding_after
         if args.no_video_clips:
             config["output"]["video_clips"] = False
+        if args.export_audio:
+            config["output"]["audio_segments"] = True
+            config["output"]["audio_extension"] = args.export_audio.lstrip(".")
+        if args.export_video:
+            config["output"]["video_clips"] = True
+            config["output"]["video_extension"] = args.export_video.lstrip(".")
 
         # 检查API key（支持环境变量）
         api_key = config["llm"].get("api_key")

@@ -18,11 +18,11 @@ llm:
   base_url: null             # 自定义 API 地址 (兼容 OpenAI 格式，多个用逗号分隔)
   model: gpt-4o              # 模型名 (多个用逗号分隔)
   temperature: 0.3           # 温度 (越低越确定)
-  max_tokens: 4096
+  max_tokens: 8192
   max_completion_tokens: null # MiMo 等模型可设为 8192 或更高，优先于 max_tokens
   retry_empty_with_reasoning: true
-  reasoning_followup_rounds: 2
-  reasoning_followup_max_tokens: 8192
+  reasoning_followup_rounds: 5
+  reasoning_followup_max_tokens: 32768
   batch_size: null           # null=整段提交；正整数=按 ASR 段数分批
   use_tools: true            # 启用歌词搜索工具
   verify_with_search: true   # 识别后搜索验证分段
@@ -48,3 +48,4 @@ output:
   video_clips: true
   audio_segments: true
   audio_extension: m4a
+  video_extension: mp4
