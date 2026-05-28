@@ -7,5 +7,5 @@ numpy>=1.26
 soundfile>=0.12
 openai>=1.0.0
 
-# GPU support (install separately)
-# pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+# GPU support for faster-whisper / CTranslate2 (CUDA 12 + cuDNN 9)
+# pip install -r requirements-cu12.txt

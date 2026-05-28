@@ -5,7 +5,7 @@
 ## 原理
 
 1. **Whisper ASR** 转写视频音频，得到带时间戳的文本
-2. **LLM** 分析转写文本，识别哪些是歌曲片段
+2. **LLM** 分析完整转写文本，识别完整歌曲及其 ASR 段落范围
 3. 根据 ASR 时间戳确定歌曲时间范围
 4. 前后加 padding，导出报告和片段
 
@@ -14,8 +14,8 @@
 ```bash
 pip install -r requirements.txt
 
-# GPU 支持 (可选)
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+# NVIDIA GPU 支持 (可选，faster-whisper / CTranslate2 使用 CUDA 12 + cuDNN 9)
+pip install -r requirements-cu12.txt
 ```
 
 ## 使用
@@ -56,6 +56,26 @@ llm:
   api_key: your-key
   base_url: https://api.your-provider.com/v1
   model: your-model-name
+  batch_size: null  # 默认整段提交；正整数表示按 ASR 段数分批
+```
+
+### DeepSeek 示例
+
+歌曲抽取任务建议使用非推理模型，避免把输出预算消耗在 reasoning 内容上：
+
+```yaml
+llm:
+  api_key: null
+  api_key_env: DEEPSEEK_API_KEY
+  base_url: https://api.deepseek.com
+  model: deepseek-chat
+  temperature: 0.1
+  max_tokens: 4096
+  max_completion_tokens: null
+  retry_empty_with_reasoning: true
+  reasoning_followup_rounds: 2
+  reasoning_followup_max_tokens: 8192
+  batch_size: null
 ```
 
 ## 免费 API 资源

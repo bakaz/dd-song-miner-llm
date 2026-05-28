@@ -1,0 +1,8 @@
+# CUDA 12 runtime libraries used by faster-whisper / CTranslate2 GPU mode.
+# Install this file in addition to requirements.txt when using NVIDIA GPU ASR:
+#   pip install -r requirements-cu12.txt
+
+-r requirements.txt
+nvidia-cublas-cu12>=12,<13
+nvidia-cuda-runtime-cu12>=12,<13
+nvidia-cudnn-cu12>=9,<10

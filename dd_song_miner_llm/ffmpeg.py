@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -105,11 +106,38 @@ def cut_video(
 
 
 def get_duration(input_media: str | Path) -> float:
-    ffmpeg_bin = require_binary("ffprobe")
+    ffprobe_bin = shutil.which("ffprobe")
+    if ffprobe_bin:
+        completed = subprocess.run(
+            [ffprobe_bin, "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", str(input_media)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if completed.returncode == 0:
+            return float(completed.stdout.strip())
+
+    ffmpeg_bin = require_binary("ffmpeg")
     completed = subprocess.run(
-        [ffmpeg_bin, "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", str(input_media)],
+        [ffmpeg_bin, "-hide_banner", "-i", str(input_media)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
-    return float(completed.stdout.strip())
+    duration = _parse_ffmpeg_duration(completed.stderr)
+    if duration is None:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise FFmpegError(f"Could not read media duration: {input_media}\n{detail}")
+    return duration
+
+
+def _parse_ffmpeg_duration(text: str) -> float | None:
+    match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", text)
+    if not match:
+        return None
+    hours = int(match.group(1))
+    minutes = int(match.group(2))
+    seconds = float(match.group(3))
+    return hours * 3600 + minutes * 60 + seconds

@@ -1,48 +1,19 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from .models import SongMatch, SongResult, TranscriptSegment
 
 
-def _is_speech_segment(text: str) -> bool:
-    """判断是否是说话/聊天内容（而非歌词）"""
-    speech_patterns = [
-        r"谢谢", r"感谢", r"再见", r"拜拜", r"下次", r"直播间",
-        r"大家好", r"hello", r"hi", r"嗯", r"好的", r"对",
-        r"thank", r"bye", r"see you", r"next time",
-    ]
-    text_lower = text.lower()
-    for pattern in speech_patterns:
-        if re.search(pattern, text_lower):
-            return True
-    return False
-
-
-def _find_song_boundary(
+def _padding_bounds(
     segments: list[TranscriptSegment],
     song_start_idx: int,
-    direction: str,
-    max_search: int = 5,
-) -> float:
-    """向前后搜索歌曲的实际边界，跳过说话内容"""
-    if direction == "before":
-        # 向前搜索，找到第一个非说话内容的位置
-        for i in range(song_start_idx - 1, max(song_start_idx - max_search - 1, -1), -1):
-            if i < 0:
-                return 0.0
-            if not _is_speech_segment(segments[i].text):
-                return segments[i].start
-        return segments[max(0, song_start_idx - max_search)].start
-    else:
-        # 向后搜索，找到最后一个非说话内容的位置
-        for i in range(song_start_idx + 1, min(song_start_idx + max_search + 1, len(segments))):
-            if i >= len(segments):
-                return segments[-1].end
-            if not _is_speech_segment(segments[i].text):
-                return segments[i].end
-        return segments[min(len(segments) - 1, song_start_idx + max_search)].end
+    song_end_idx: int,
+    total_duration: float,
+) -> tuple[float, float]:
+    before_limit = segments[song_start_idx - 1].end if song_start_idx > 0 else 0.0
+    after_limit = segments[song_end_idx + 1].start if song_end_idx + 1 < len(segments) else total_duration
+    return before_limit, after_limit
 
 
 def _merge_adjacent_songs(
@@ -109,18 +80,18 @@ def build_song_results(
 
     results: list[SongResult] = []
     for i, song in enumerate(merged):
-        # 使用智能边界检测
         song_start = song["start"]
         song_end = song["end"]
-        
-        # 检查歌曲前面的内容，避免包含说话
-        before_boundary = _find_song_boundary(segments, song["segment_start_idx"], "before")
-        start = max(before_boundary, song_start - before_pad)
-        
-        # 检查歌曲后面的内容，避免包含说话
-        after_boundary = _find_song_boundary(segments, song["segment_end_idx"], "after")
-        end = min(after_boundary, song_end + after_pad)
-        
+
+        before_limit, after_limit = _padding_bounds(
+            segments,
+            song["segment_start_idx"],
+            song["segment_end_idx"],
+            total_duration,
+        )
+        start = min(song_start, max(before_limit, song_start - before_pad))
+        end = max(song_end, min(after_limit, song_end + after_pad))
+
         # 确保不超出总时长
         start = max(0.0, start)
         end = min(total_duration, end)

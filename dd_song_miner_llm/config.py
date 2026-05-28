@@ -21,11 +21,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "llm": {
         "api_key": None,
+        "api_key_env": None,
         "base_url": None,
         "model": "gpt-4o",
         "temperature": 0.3,
         "max_tokens": 4096,
-        "batch_size": 20,
+        "max_completion_tokens": None,
+        "retry_empty_with_reasoning": True,
+        "reasoning_followup_rounds": 2,
+        "reasoning_followup_max_tokens": 8192,
+        "batch_size": None,
         "fallbacks": [],
     },
     "padding": {

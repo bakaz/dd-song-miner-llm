@@ -14,11 +14,16 @@ asr:
 # ─── LLM 配置 ─────────────────────────────────
 llm:
   api_key: sk-xxx            # 必填：OpenAI API key 或兼容 key (多个用逗号分隔)
+  api_key_env: null          # 可选：从环境变量读取 API key，例如 DEEPSEEK_API_KEY
   base_url: null             # 自定义 API 地址 (兼容 OpenAI 格式，多个用逗号分隔)
   model: gpt-4o              # 模型名 (多个用逗号分隔)
   temperature: 0.3           # 温度 (越低越确定)
   max_tokens: 4096
-  batch_size: 20             # 每批发送的 ASR 段数
+  max_completion_tokens: null # MiMo 等模型可设为 8192 或更高，优先于 max_tokens
+  retry_empty_with_reasoning: true
+  reasoning_followup_rounds: 2
+  reasoning_followup_max_tokens: 8192
+  batch_size: null           # null=整段提交；正整数=按 ASR 段数分批
   
   # 备用提供商 (可选，当主提供商失败时自动回退)
   fallbacks: []

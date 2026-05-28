@@ -34,14 +34,18 @@ def run_pipeline(
     config: dict[str, Any],
 ) -> list[SongResult]:
     input_path = Path(input_video)
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input video not found: {input_path}")
+
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
     audio_dir = out / "01_audio"
     asr_dir = out / "02_asr"
+    llm_dir = asr_dir / "llm"
     clips_dir = out / "03_clips"
     reports_dir = out / "04_reports"
-    for d in [audio_dir, asr_dir, clips_dir, reports_dir]:
+    for d in [audio_dir, asr_dir, llm_dir, clips_dir, reports_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
     print("[1/4] Extracting audio...")
@@ -73,7 +77,11 @@ def run_pipeline(
     print(f"  Transcribed {len(segments)} segments")
 
     print("[3/4] Identifying songs with LLM...")
-    matches = identify_songs(segments, config)
+    matches = identify_songs(segments, config, debug_dir=llm_dir)
+    (llm_dir / "matches.json").write_text(
+        json.dumps([match.to_dict() for match in matches], ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     print(f"  Found {len(matches)} song matches")
 
     print("[4/4] Building results and exporting...")

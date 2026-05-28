@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+from datetime import datetime
 from pathlib import Path
 
 from .models import SongResult
@@ -20,7 +21,13 @@ def write_reports(results: list[SongResult], output_dir: str | Path) -> tuple[Pa
     csv_path = out / "songs.csv"
     json_path = out / "songs.json"
 
-    with csv_path.open("w", encoding="utf-8-sig", newline="") as f:
+    try:
+        csv_file = csv_path.open("w", encoding="utf-8-sig", newline="")
+    except PermissionError:
+        csv_path = _alternate_report_path(csv_path)
+        csv_file = csv_path.open("w", encoding="utf-8-sig", newline="")
+
+    with csv_file as f:
         writer = csv.DictWriter(f, fieldnames=[
             "index", "start", "end", "duration_seconds",
             "title", "artist", "confidence",
@@ -42,7 +49,18 @@ def write_reports(results: list[SongResult], output_dir: str | Path) -> tuple[Pa
                 "errors": " | ".join(r.errors),
             })
 
-    with json_path.open("w", encoding="utf-8") as f:
+    try:
+        json_file = json_path.open("w", encoding="utf-8")
+    except PermissionError:
+        json_path = _alternate_report_path(json_path)
+        json_file = json_path.open("w", encoding="utf-8")
+
+    with json_file as f:
         json.dump([r.to_dict() for r in results], f, ensure_ascii=False, indent=2)
 
     return csv_path, json_path
+
+
+def _alternate_report_path(path: Path) -> Path:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return path.with_name(f"{path.stem}_{stamp}{path.suffix}")
