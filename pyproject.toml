@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dd-song-miner-llm"
+version = "0.1.0"
+description = "Song extraction using Whisper ASR + LLM identification."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "PyYAML>=6.0.2",
+  "tqdm>=4.66",
+  "imageio-ffmpeg>=0.5.1",
+  "faster-whisper>=1.2.1",
+  "numpy>=1.26",
+  "soundfile>=0.12",
+  "openai>=1.0.0",
+  "httpx>=0.23.0",
+  "ddgs>=9.0.0",
+]
+
+[project.scripts]
+dd-song-miner-llm = "dd_song_miner_llm.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["dd_song_miner_llm*"]

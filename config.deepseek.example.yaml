@@ -1,0 +1,43 @@
+# dd-song-miner-llm DeepSeek 配置模板
+# 复制为 config.yaml 后设置 DEEPSEEK_API_KEY 环境变量。
+
+asr:
+  model: small
+  device: auto
+  compute_type: default
+  language: null
+  beam_size: 5
+  vad_filter: true
+  initial_prompt: null
+
+llm:
+  api_key: null
+  api_key_env: DEEPSEEK_API_KEY
+  base_url: https://api.deepseek.com
+  model: deepseek-chat
+  temperature: 0.1
+  max_tokens: 8192
+  max_completion_tokens: null
+  retry_empty_with_reasoning: true
+  reasoning_followup_rounds: 5
+  reasoning_followup_max_tokens: 32768
+  batch_size: null
+  use_tools: true
+  verify_with_search: true
+  fallbacks: []
+
+padding:
+  before_seconds: 3.0
+  after_seconds: 15.0
+  after_next_asr_end_guard_seconds: 2.0
+  min_song_seconds: 30.0
+  merge_gap_seconds: 35.0
+
+output:
+  video_clips: true
+  audio_segments: true
+  audio_extension: m4a
+  audio_bitrate_kbps: 320
+  video_extension: mp4
+  video_codec: copy
+  match_context_segments: 10

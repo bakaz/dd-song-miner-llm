@@ -1,0 +1,57 @@
+# dd-song-miner-llm 配置文件
+# 用法: python -m dd_song_miner_llm run 视频.mp4 --config config.yaml
+
+# ─── ASR 配置 ─────────────────────────────────
+asr:
+  model: small               # tiny | base | small | medium | large-v3
+  device: auto               # auto | cpu | cuda
+  compute_type: default      # default | float16 | int8
+  language: null             # null=自动 | "zh" | "ja" | "en"
+  beam_size: 5
+  vad_filter: true           # 启用 VAD 过滤静音段
+  initial_prompt: null
+
+# ─── LLM 配置 ─────────────────────────────────
+llm:
+  api_key: null              # 不建议写明文 key；优先使用 api_key_env
+  api_key_env: LLM_API_KEY   # 从环境变量读取 API key，例如 DEEPSEEK_API_KEY
+  base_url: null             # OpenAI 官方可保持 null；兼容 API 填对应 base_url
+  model: gpt-4o              # 模型名；兼容 API 可改为 provider 的模型名
+  temperature: 0.1           # 歌曲抽取建议低温度，减少格式漂移
+  max_tokens: 8192
+  max_completion_tokens: null # MiMo 等模型可设为 8192 或更高，优先于 max_tokens
+  retry_empty_with_reasoning: true
+  reasoning_followup_rounds: 5
+  reasoning_followup_max_tokens: 32768
+  batch_size: null           # null=整段提交；正整数=按 ASR 段数分批
+  use_tools: true            # 启用歌词搜索工具
+  verify_with_search: true   # 识别后搜索验证分段
+  
+  # 备用提供商 (可选，当主提供商失败时自动回退)
+  fallbacks: []
+  #  - api_key: null
+  #    api_key_env: BACKUP_LLM_API_KEY
+  #    base_url: https://api.groq.com/openai/v1
+  #    model: llama-3.1-8b-instant
+  #  - api_key: null
+  #    api_key_env: ANOTHER_LLM_API_KEY
+  #    base_url: https://api.together.xyz/v1
+  #    model: meta-llama/Llama-3-8b-chat-hf
+
+# ─── 时间 padding ─────────────────────────────
+padding:
+  before_seconds: 3.0        # 歌曲开始前 padding
+  after_seconds: 15.0        # 歌曲结束后 padding
+  after_next_asr_end_guard_seconds: 2.0  # after padding 硬限制：不超下一段 ASR end 减此值
+  min_song_seconds: 30.0     # 最短歌曲时长 (低于此值丢弃)
+  merge_gap_seconds: 35.0    # 同一首歌间隔低于此值时合并
+
+# ─── 输出 ─────────────────────────────────────
+output:
+  video_clips: true
+  audio_segments: true
+  audio_extension: m4a
+  audio_bitrate_kbps: 320
+  video_extension: mp4
+  video_codec: copy          # copy=不重编码; auto=nv > intel > amd > cpu
+  match_context_segments: 10 # 每个 match 前后输出多少条 Whisper 段落
