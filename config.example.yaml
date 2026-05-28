@@ -1,0 +1,43 @@
+# dd-song-miner-llm 配置文件
+# 用法: python -m dd_song_miner_llm run 视频.mp4 --config config.yaml
+
+# ─── ASR 配置 ─────────────────────────────────
+asr:
+  model: small               # tiny | base | small | medium | large-v3
+  device: auto               # auto | cpu | cuda
+  compute_type: default      # default | float16 | int8
+  language: null             # null=自动 | "zh" | "ja" | "en"
+  beam_size: 5
+  vad_filter: true           # 启用 VAD 过滤静音段
+  initial_prompt: null
+
+# ─── LLM 配置 ─────────────────────────────────
+llm:
+  api_key: sk-xxx            # 必填：OpenAI API key 或兼容 key (多个用逗号分隔)
+  base_url: null             # 自定义 API 地址 (兼容 OpenAI 格式，多个用逗号分隔)
+  model: gpt-4o              # 模型名 (多个用逗号分隔)
+  temperature: 0.3           # 温度 (越低越确定)
+  max_tokens: 4096
+  batch_size: 20             # 每批发送的 ASR 段数
+  
+  # 备用提供商 (可选，当主提供商失败时自动回退)
+  fallbacks: []
+  #  - api_key: sk-backup-key
+  #    base_url: https://api.groq.com/openai/v1
+  #    model: llama-3.1-8b-instant
+  #  - api_key: sk-another-key
+  #    base_url: https://api.together.xyz/v1
+  #    model: meta-llama/Llama-3-8b-chat-hf
+
+# ─── 时间 padding ─────────────────────────────
+padding:
+  before_seconds: 3.0        # 歌曲开始前 padding
+  after_seconds: 5.0         # 歌曲结束后 padding
+  min_song_seconds: 15.0     # 最短歌曲时长 (低于此值丢弃)
+  merge_gap_seconds: 30.0    # 同一首歌间隔低于此值时合并
+
+# ─── 输出 ─────────────────────────────────────
+output:
+  video_clips: true
+  audio_segments: true
+  audio_extension: m4a

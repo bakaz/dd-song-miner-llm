@@ -1,0 +1,11 @@
+# Core dependencies
+PyYAML>=6.0.2
+tqdm>=4.66
+imageio-ffmpeg>=0.5.1
+faster-whisper>=1.2.1
+numpy>=1.26
+soundfile>=0.12
+openai>=1.0.0
+
+# GPU support (install separately)
+# pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
