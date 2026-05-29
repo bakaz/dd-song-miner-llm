@@ -10,16 +10,12 @@ from .ffmpeg import cut_audio, cut_video, extract_audio, get_duration
 from .llm import identify_songs
 from .merger import build_song_results
 from .models import SongResult, TranscriptSegment
-from .report import write_reports
+from .paths import safe_path_part, stage_input_for_ffmpeg
+from .report import write_match_context_reports, write_reports
 
 
 def _safe_filename(value: str, fallback: str = "untitled") -> str:
-    import re
-    import unicodedata
-    normalized = unicodedata.normalize("NFKC", value).strip()
-    normalized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", normalized)
-    normalized = re.sub(r"\s+", " ", normalized).strip(" .")
-    return normalized[:120] or fallback
+    return safe_path_part(value, fallback=fallback)
 
 
 def _format_compact_timecode(seconds: float) -> str:
@@ -33,12 +29,9 @@ def run_pipeline(
     output_dir: str | Path,
     config: dict[str, Any],
 ) -> list[SongResult]:
-    input_path = Path(input_video)
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input video not found: {input_path}")
-
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
+    input_path = stage_input_for_ffmpeg(input_video, out / "00_input").resolve()
 
     audio_dir = out / "01_audio"
     asr_dir = out / "02_asr"
@@ -82,13 +75,21 @@ def run_pipeline(
         json.dumps([match.to_dict() for match in matches], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    write_match_context_reports(
+        matches,
+        segments,
+        llm_dir,
+        context_segments=int(config["output"].get("match_context_segments", 10)),
+    )
     print(f"  Found {len(matches)} song matches")
 
     print("[4/4] Building results and exporting...")
     results = build_song_results(segments, matches, total_duration, config)
 
     audio_ext = str(config["output"].get("audio_extension", "m4a")).lstrip(".")
+    audio_bitrate_kbps = int(config["output"].get("audio_bitrate_kbps") or 320)
     video_ext = str(config["output"].get("video_extension", "mp4")).lstrip(".")
+    video_codec = str(config["output"].get("video_codec", "auto"))
     audio_dir_out = clips_dir / "audio"
     video_dir_out = clips_dir / "video"
 
@@ -101,7 +102,15 @@ def run_pipeline(
         if config["output"].get("audio_segments", True):
             try:
                 target = audio_dir_out / f"{stem}.{audio_ext}"
-                cut_audio(input_path, target, result.start, result.end, copy_codec=True)
+                copy_audio = audio_ext.lower() in {"aac", "m4a"}
+                cut_audio(
+                    input_path,
+                    target,
+                    result.start,
+                    result.end,
+                    copy_codec=copy_audio,
+                    bitrate_kbps=audio_bitrate_kbps,
+                )
                 result.audio_path = target
             except Exception as exc:
                 result.errors.append(f"audio export failed: {exc}")
@@ -109,7 +118,7 @@ def run_pipeline(
         if config["output"].get("video_clips", True):
             try:
                 target = video_dir_out / f"{stem}.{video_ext}"
-                cut_video(input_path, target, result.start, result.end)
+                cut_video(input_path, target, result.start, result.end, video_codec=video_codec)
                 result.video_path = target
             except Exception as exc:
                 result.errors.append(f"video export failed: {exc}")

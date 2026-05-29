@@ -43,6 +43,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "video_clips": True,
         "audio_segments": True,
         "audio_extension": "m4a",
+        "audio_bitrate_kbps": 320,
+        "video_extension": "mp4",
+        "video_codec": "auto",
+        "match_context_segments": 10,
     },
 }
 

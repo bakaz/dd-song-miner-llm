@@ -57,6 +57,24 @@ class PaddingTests(unittest.TestCase):
         self.assertEqual(results[0].start, 10.0)
         self.assertEqual(results[0].end, 30.0)
 
+    def test_merged_song_padding_uses_last_merged_segment(self) -> None:
+        segments = [
+            TranscriptSegment(0.0, 5.0, "talk before"),
+            TranscriptSegment(10.0, 20.0, "song first"),
+            TranscriptSegment(25.0, 35.0, "song second"),
+            TranscriptSegment(40.0, 45.0, "talk after"),
+        ]
+        matches = [
+            SongMatch("Song", "", "", [1], 0.8),
+            SongMatch("Song", "", "", [2], 0.9),
+        ]
+
+        results = build_song_results(segments, matches, 45.0, _config(before=5.0, after=10.0))
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].start, 5.0)
+        self.assertEqual(results[0].end, 40.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -48,4 +48,7 @@ output:
   video_clips: true
   audio_segments: true
   audio_extension: m4a
+  audio_bitrate_kbps: 320
   video_extension: mp4
+  video_codec: auto          # auto=nv > intel > amd > cpu; copy=不重编码
+  match_context_segments: 10 # 每个 match 前后输出多少条 Whisper 段落

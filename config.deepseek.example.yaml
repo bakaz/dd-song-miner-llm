@@ -11,7 +11,7 @@ asr:
   initial_prompt: null
 
 llm:
-  api_key: sk-be0800eaf21e4d619dcd697b3c9fef29
+  api_key: sk-xxx
   api_key_env: DEEPSEEK_API_KEY
   base_url: https://api.deepseek.com
   model: deepseek-chat
@@ -36,3 +36,7 @@ output:
   video_clips: true
   audio_segments: true
   audio_extension: m4a
+  audio_bitrate_kbps: 320
+  video_extension: mp4
+  video_codec: auto
+  match_context_segments: 10

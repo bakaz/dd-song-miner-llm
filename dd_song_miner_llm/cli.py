@@ -4,7 +4,9 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
+from .batch import run_batch
 from .config import DEFAULT_CONFIG, load_config
+from .manual import manual_cut
 from .pipeline import run_pipeline
 
 
@@ -30,6 +32,27 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--no-video-clips", action="store_true", help="Skip video clip export.")
     run_parser.add_argument("--export-audio", default=None, help="Audio export format (mp3, m4a, wav, etc).")
     run_parser.add_argument("--export-video", default=None, help="Video export format (mp4, mkv, etc).")
+    run_parser.add_argument("--video-codec", default=None, help="Video codec: auto, copy, nv, intel, amd, cpu.")
+    run_parser.add_argument("--audio-bitrate-kbps", type=int, default=None, help="Audio transcode bitrate.")
+
+    batch_parser = subparsers.add_parser("batch-run", help="Process videos under a folder tree once per folder.")
+    batch_parser.add_argument("input_root", help="Folder to scan recursively.")
+    batch_parser.add_argument("--result-root", required=True, help="Where completed run outputs are copied.")
+    batch_parser.add_argument("--work-root", default="runs/batch", help="Local working root for pipeline outputs.")
+    batch_parser.add_argument("--config", default=None, help="YAML config file.")
+    batch_parser.add_argument("--marker", default=".dd_song_miner_done.json", help="Done marker file written into each processed source folder.")
+    batch_parser.add_argument("--extensions", default=None, help="Comma-separated video extensions, e.g. mp4,mkv,flv.")
+    batch_parser.add_argument("--video-codec", default=None, help="Video codec: auto, copy, nv, intel, amd, cpu.")
+    batch_parser.add_argument("--audio-bitrate-kbps", type=int, default=None, help="Audio transcode bitrate.")
+
+    manual_parser = subparsers.add_parser("manual-cut", help="Cut clips from an edited songs.csv in an existing run folder.")
+    manual_parser.add_argument("run_dir", help="Existing run output directory.")
+    manual_parser.add_argument("--csv", default=None, help="Edited songs.csv path. Defaults to RUN_DIR/04_reports/songs.csv.")
+    manual_parser.add_argument("--video", default=None, help="Input video override. Defaults to manifest input_video.")
+    manual_parser.add_argument("--out", default=None, help="Manual output directory. Defaults to RUN_DIR/05_manual.")
+    manual_parser.add_argument("--config", default=None, help="YAML config file.")
+    manual_parser.add_argument("--video-codec", default=None, help="Video codec: auto, copy, nv, intel, amd, cpu.")
+    manual_parser.add_argument("--audio-bitrate-kbps", type=int, default=None, help="Audio transcode bitrate.")
 
     init_parser = subparsers.add_parser("init-config", help="Generate default config file.")
     init_parser.add_argument("--out", default="config.yaml", help="Output path.")
@@ -75,6 +98,10 @@ def _generate_config_yaml() -> str:
         "  video_clips: true",
         "  audio_segments: true",
         "  audio_extension: m4a",
+        "  audio_bitrate_kbps: 320",
+        "  video_extension: mp4",
+        "  video_codec: auto # auto=nv > intel > amd > cpu; copy=不重编码",
+        "  match_context_segments: 10",
     ]
     return "\n".join(lines) + "\n"
 
@@ -93,36 +120,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         config = load_config(args.config)
 
-        if args.asr_model:
-            config["asr"]["model"] = args.asr_model
-        if args.asr_language:
-            config["asr"]["language"] = args.asr_language
-        if args.llm_model:
-            config["llm"]["model"] = args.llm_model
-        if args.llm_api_key:
-            config["llm"]["api_key"] = args.llm_api_key
-        if args.llm_base_url:
-            config["llm"]["base_url"] = args.llm_base_url
-        if args.padding_before is not None:
-            config["padding"]["before_seconds"] = args.padding_before
-        if args.padding_after is not None:
-            config["padding"]["after_seconds"] = args.padding_after
-        if args.no_video_clips:
-            config["output"]["video_clips"] = False
-        if args.export_audio:
-            config["output"]["audio_segments"] = True
-            config["output"]["audio_extension"] = args.export_audio.lstrip(".")
-        if args.export_video:
-            config["output"]["video_clips"] = True
-            config["output"]["video_extension"] = args.export_video.lstrip(".")
+        _apply_run_overrides(config, args)
 
         # 检查API key（支持环境变量）
-        api_key = config["llm"].get("api_key")
-        api_key_env = config["llm"].get("api_key_env")
-        if not api_key and api_key_env:
-            import os
-            api_key = os.environ.get(str(api_key_env), "")
-        if not api_key:
+        if not _has_api_key(config):
             print("Error: LLM API key required. Set in config or --llm-api-key")
             return 1
 
@@ -134,8 +135,83 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nDone! Found {len(results)} songs in: {output_dir}")
         return 0
 
+    if args.command == "batch-run":
+        config = load_config(args.config)
+        _apply_output_overrides(config, args)
+        if not _has_api_key(config):
+            print("Error: LLM API key required. Set in config or environment")
+            return 1
+        extensions = None
+        if args.extensions:
+            extensions = {item.strip() for item in args.extensions.split(",") if item.strip()}
+        runs = run_batch(
+            args.input_root,
+            args.result_root,
+            args.work_root,
+            config,
+            marker_name=args.marker,
+            extensions=extensions,
+        )
+        print(f"\nDone! Batch produced {len(runs)} run records.")
+        return 0
+
+    if args.command == "manual-cut":
+        config = load_config(args.config)
+        _apply_output_overrides(config, args)
+        results = manual_cut(
+            args.run_dir,
+            config,
+            csv_path=args.csv,
+            input_video=args.video,
+            output_dir=args.out,
+        )
+        print(f"\nDone! Manual cut produced {len(results)} songs.")
+        return 0
+
     parser.error(f"Unknown command: {args.command}")
     return 2
+
+
+def _apply_run_overrides(config: dict, args: argparse.Namespace) -> None:
+    if args.asr_model:
+        config["asr"]["model"] = args.asr_model
+    if args.asr_language:
+        config["asr"]["language"] = args.asr_language
+    if args.llm_model:
+        config["llm"]["model"] = args.llm_model
+    if args.llm_api_key:
+        config["llm"]["api_key"] = args.llm_api_key
+    if args.llm_base_url:
+        config["llm"]["base_url"] = args.llm_base_url
+    if args.padding_before is not None:
+        config["padding"]["before_seconds"] = args.padding_before
+    if args.padding_after is not None:
+        config["padding"]["after_seconds"] = args.padding_after
+    if args.no_video_clips:
+        config["output"]["video_clips"] = False
+    if args.export_audio:
+        config["output"]["audio_segments"] = True
+        config["output"]["audio_extension"] = args.export_audio.lstrip(".")
+    if args.export_video:
+        config["output"]["video_clips"] = True
+        config["output"]["video_extension"] = args.export_video.lstrip(".")
+    _apply_output_overrides(config, args)
+
+
+def _apply_output_overrides(config: dict, args: argparse.Namespace) -> None:
+    if getattr(args, "video_codec", None):
+        config["output"]["video_codec"] = args.video_codec
+    if getattr(args, "audio_bitrate_kbps", None) is not None:
+        config["output"]["audio_bitrate_kbps"] = args.audio_bitrate_kbps
+
+
+def _has_api_key(config: dict) -> bool:
+    api_key = config["llm"].get("api_key")
+    api_key_env = config["llm"].get("api_key_env")
+    if not api_key and api_key_env:
+        import os
+        api_key = os.environ.get(str(api_key_env), "")
+    return bool(api_key)
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ def _merge_adjacent_songs(
         prev = merged[-1]
         if song["start"] - prev["end"] <= merge_gap and song["title"] == prev["title"]:
             prev["end"] = max(prev["end"], song["end"])
+            prev["segment_end_idx"] = max(prev["segment_end_idx"], song["segment_end_idx"])
             prev["confidence"] = max(prev["confidence"], song["confidence"])
             prev["transcript"] += " " + song["transcript"]
         else:
